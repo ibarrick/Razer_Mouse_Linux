@@ -82,6 +82,7 @@ std::map<std::string, configKey*> configKeysMap;
 std::map<std::string, std::map<int, std::vector<MacroEvent *> > > macroEventsKeyMap;
 configSwitchScheduler configSwitcher = configSwitchScheduler();
 
+std::map<int, std::vector<MacroEvent *>> * currentConfigListMap;
 string currentConfigName;
 struct input_event ev1[64];
 int side_btn_fd, extra_btn_fd, size;
@@ -133,27 +134,26 @@ void loadConf(string configName) {
 				}
 
 				if(configKeysMap.contains(commandType)) { //filter out bad types
+					currentConfigListMap = &(macroEventsKeyMap[configName]);
 					if(commandType=="key") {
 						if(commandContent.size()==1) {
 							commandContent = hexChar(commandContent[0]);
 						}
-						macroEventsKeyMap[configName][stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap["keypressonpress"], &commandType, &commandContent));
-						macroEventsKeyMap[configName][stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap["keyreleaseonrelease"], &commandType, &commandContent));
+						(*currentConfigListMap)[stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap["keypress"], &commandType, &commandContent));
+						(*currentConfigListMap)[stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap["keyrelease"], &commandType, &commandContent));
 					}else if(commandType=="string" || commandType=="stringrelease") {
-						string commandContent2="";
 						for(long unsigned jj=0; jj<commandContent.size(); jj++) {
-							commandContent2 += " "+hexChar(commandContent[jj]);
+							string commandContent2 = hexChar(commandContent[jj]);
+							(*currentConfigListMap)[stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap[commandType], &commandType, &commandContent2));
 						}
-						macroEventsKeyMap[configName][stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap[commandType], &commandType, &commandContent2));
 					}else{
-						macroEventsKeyMap[configName][stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap[commandType], &commandType, &commandContent));
+						(*currentConfigListMap)[stoi(buttonNumber)].emplace_back(new MacroEvent(configKeysMap[commandType], &commandType, &commandContent));
 					}//Encode and store mapping v3
 				}
 			}
 		}
 		in.close();
 	}
-	currentConfigName = configName;
 	(void)!(system(("notify-send -t 200 'New config :' '"+configName+"'").c_str()));
 }
 
@@ -184,7 +184,7 @@ void run() {
 			if (ev1[0].value != ' ' && ev1[1].type == EV_KEY) {//Key event (press or release)
 				switch (ev1[1].code) {
 				case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9: case 10:  case 11:  case 12:  case 13:
-					std::thread actionThread(chooseAction, (ev1[1].value == 1), &macroEventsKeyMap[currentConfigName][ev1[1].code - 1], &configSwitcher);//real key number = ev1[1].code - 1
+					std::thread actionThread(chooseAction, (ev1[1].value == 1), &(*currentConfigListMap)[ev1[1].code - 1], &configSwitcher);//real key number = ev1[1].code - 1
 					actionThread.detach();
 					break;
 				}
@@ -196,7 +196,7 @@ void run() {
 			if (ev1[1].type == 1) {//Only extra buttons
 				switch (ev1[1].code) {
 				case 275: case 276:
-					std::thread actionThread(chooseAction, (ev1[1].value == 1), &macroEventsKeyMap[currentConfigName][ev1[1].code - OFFSET], &configSwitcher);//real key number = ev1[1].code - OFFSET
+					std::thread actionThread(chooseAction, (ev1[1].value == 1), &(*currentConfigListMap)[ev1[1].code - OFFSET], &configSwitcher);//real key number = ev1[1].code - OFFSET
 					actionThread.detach();
 					break;
 				}
@@ -234,33 +234,27 @@ NagaDaemon() {
 	devices.emplace_back("/dev/input/by-id/usb-Razer_Razer_Naga_Hex_V2-if02-event-kbd","/dev/input/by-id/usb-Razer_Razer_Naga_Hex_V2-event-mouse");                                     // NAGA HEX v2
 	devices.emplace_back("/dev/input/by-id/usb-Razer_Razer_Naga_Trinity_00000000001A-if02-event-kbd", "/dev/input/by-id/usb-Razer_Razer_Naga_Trinity_00000000001A-event-mouse");        // NAGA Trinity
 	devices.emplace_back("/dev/input/by-id/usb-Razer_Razer_Naga_Left_Handed_Edition-if02-event-kbd", "/dev/input/by-id/usb-Razer_Razer_Naga_Left_Handed_Edition-event-mouse");          // NAGA Left Handed
+	devices.emplace_back("/dev/input/by-id/usb-Razer_Razer_Naga_X-if02-event-kbd", "/dev/input/by-id/usb-Razer_Razer_Naga_X-event-mouse");						    // NAGA X
 
 	//modulable options list to manage internals inside chooseAction method arg1:COMMAND, arg2:isInternal, arg3:onKeyPressed?
-	configKeysMap.insert(std::pair<std::string, configKey*>("key", NULL));//special one
-
 	configKeysMap.insert(std::pair<std::string, configKey*>("chmap", new configKey("", true, true)));//change keymap
 	configKeysMap.insert(std::pair<std::string, configKey*>("chmaprelease", new configKey("", true, false)));
-
 	configKeysMap.insert(std::pair<std::string, configKey*>("sleep", new configKey("", true, true)));
 	configKeysMap.insert(std::pair<std::string, configKey*>("sleeprelease", new configKey("", true, false)));
-
 	configKeysMap.insert(std::pair<std::string, configKey*>("run", new configKey("setsid ", false, true)));
 	configKeysMap.insert(std::pair<std::string, configKey*>("run2", new configKey("", false, true)));
-
 	configKeysMap.insert(std::pair<std::string, configKey*>("runrelease", new configKey("setsid ", false, false)));
 	configKeysMap.insert(std::pair<std::string, configKey*>("runrelease2", new configKey("", false, false)));
-
-	configKeysMap.insert(std::pair<std::string, configKey*>("keypressonpress", new configKey("setsid xdotool keydown --window getactivewindow ", false, true)));
-	configKeysMap.insert(std::pair<std::string, configKey*>("keypressonrelease", new configKey("setsid xdotool keydown --window getactivewindow ", false, false)));
-
-	configKeysMap.insert(std::pair<std::string, configKey*>("keyreleaseonpress", new configKey("setsid xdotool keyup --window getactivewindow ", false, true)));
-	configKeysMap.insert(std::pair<std::string, configKey*>("keyreleaseonrelease", new configKey("setsid xdotool keyup --window getactivewindow ", false, false)));
-
+	configKeysMap.insert(std::pair<std::string, configKey*>("key", NULL));//special one
+	configKeysMap.insert(std::pair<std::string, configKey*>("keypress", new configKey("setsid xdotool keydown --window getactivewindow ", false, true)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("keyrelease", new configKey("setsid xdotool keyup --window getactivewindow ", false, false)));
 	configKeysMap.insert(std::pair<std::string, configKey*>("keyclick", new configKey("setsid xdotool key --window getactivewindow ", false, true)));
 	configKeysMap.insert(std::pair<std::string, configKey*>("keyclickrelease", new configKey("setsid xdotool key --window getactivewindow ", false, false)));
-
-	configKeysMap.insert(std::pair<std::string, configKey*>("string", new configKey("setsid xdotool key --delay 0 --window getactivewindow", false, true)));
-	configKeysMap.insert(std::pair<std::string, configKey*>("stringrelease", new configKey("setsid xdotool key --delay 0 --window getactivewindow", false, false)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("mouseposition", new configKey("setsid xdotool mousemove ", false, true)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("mouseclick", new configKey("setsid xdotool click ", false, true)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("setworkspace", new configKey("setsid xdotool set_desktop ", false, true)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("string", new configKey("setsid xdotool key --window getactivewindow ", false, true)));
+	configKeysMap.insert(std::pair<std::string, configKey*>("stringrelease", new configKey("setsid xdotool key --window getactivewindow ", false, false)));
 
 	size = sizeof(struct input_event);
 	for (auto &device : devices) {//Setup check
@@ -309,9 +303,9 @@ int main(int argc, char *argv[]) {
 			}
 		}else if(strstr(argv[1], "debug")!=NULL) {
 			stopD();
-			usleep(40000);
+			usleep(100000);
 			clog << "Starting naga daemon in debug mode..." << endl;
-			(void)!(system("/usr/local/bin/nagaXinputStart.sh"));
+//			(void)!(system("/usr/local/bin/nagaXinputStart.sh"));
 			NagaDaemon();
 		}
 	} else {
