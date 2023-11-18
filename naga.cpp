@@ -10,6 +10,7 @@
 #include <linux/input.h>
 #include <cstring>
 #include <thread>
+#include <algorithm>
 #include <map>
 #include <sstream>
 #define OFFSET 262
